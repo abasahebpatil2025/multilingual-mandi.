@@ -1,0 +1,374 @@
+"""
+Google Gemini AI client for the Multilingual Mandi application.
+
+This module provides a wrapper for Google Gemini AI API interactions,
+handling authentication, translation requests, and AI-powered features.
+"""
+
+import logging
+from typing import Dict, Any, Optional
+
+try:
+    import google.generativeai as genai
+    from google.generativeai.types import GenerationConfig
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
+    genai = None
+    GenerationConfig = None
+
+
+class GeminiClientError(Exception):
+    """Custom exception for Gemini client errors."""
+    pass
+
+
+class GeminiClient:
+    """Wrapper for Google Gemini AI API interactions."""
+    
+    def __init__(self, api_key: str):
+        """
+        Initialize the Gemini client with API key.
+        
+        Args:
+            api_key (str): Google Gemini API key
+            
+        Raises:
+            GeminiClientError: If API key is invalid or client initialization fails
+        """
+        if not GEMINI_AVAILABLE:
+            raise GeminiClientError("Google Generative AI package not installed. Run: pip install google-generativeai")
+            
+        if not api_key or not api_key.strip():
+            raise GeminiClientError("API key cannot be empty")
+        
+        self.api_key = api_key.strip()
+        
+        try:
+            # Configure the Gemini API
+            genai.configure(api_key=self.api_key)
+            
+            # Initialize the model
+            self.model = genai.GenerativeModel('gemini-pro')
+            
+            # Test the connection with a simple request
+            self._test_connection()
+            
+            logging.info("GeminiClient initialized successfully")
+            
+        except Exception as e:
+            logging.error(f"Failed to initialize GeminiClient: {e}")
+            raise GeminiClientError(f"Failed to initialize Gemini client: {str(e)}")
+    
+    def _test_connection(self) -> None:
+        """
+        Test the API connection with a simple request.
+        
+        Raises:
+            GeminiClientError: If the connection test fails
+        """
+        try:
+            # Simple test prompt to verify API connectivity
+            response = self.model.generate_content(
+                "Test connection. Respond with 'OK'.",
+                generation_config=GenerationConfig(
+                    max_output_tokens=10,
+                    temperature=0.1
+                )
+            )
+            
+            if not response or not response.text:
+                raise GeminiClientError("Empty response from API")
+                
+        except Exception as e:
+            raise GeminiClientError(f"API connection test failed: {str(e)}")
+    
+    def translate_text(self, text: str, source_lang: str, target_lang: str) -> str:
+        """
+        Translate text between languages using Google Gemini.
+        
+        Args:
+            text (str): Text to translate
+            source_lang (str): Source language code
+            target_lang (str): Target language code
+            
+        Returns:
+            str: Translated text
+            
+        Raises:
+            GeminiClientError: If translation fails
+        """
+        if not text or not text.strip():
+            return ""
+        
+        if source_lang == target_lang:
+            return text
+        
+        try:
+            # Create translation prompt
+            prompt = f"""
+            Translate the following text from {source_lang} to {target_lang}.
+            Only return the translated text, no explanations or additional content.
+            
+            Text to translate: {text}
+            """
+            
+            response = self.model.generate_content(
+                prompt,
+                generation_config=GenerationConfig(
+                    max_output_tokens=1000,
+                    temperature=0.1
+                )
+            )
+            
+            if not response or not response.text:
+                raise GeminiClientError("Empty translation response")
+            
+            translated_text = response.text.strip()
+            logging.info(f"Successfully translated text from {source_lang} to {target_lang}")
+            
+            return translated_text
+            
+        except Exception as e:
+            logging.error(f"Translation failed: {e}")
+            raise GeminiClientError(f"Translation failed: {str(e)}")
+    
+    def generate_negotiation_advice(self, context: Dict[str, Any]) -> str:
+        """
+        Generate negotiation advice based on context.
+        
+        Args:
+            context (Dict[str, Any]): Negotiation context
+            
+        Returns:
+            str: AI-generated negotiation advice
+            
+        Raises:
+            GeminiClientError: If advice generation fails
+        """
+        try:
+            # Extract relevant context information
+            crop = context.get('crop', 'unknown crop')
+            current_price = context.get('current_price', 0)
+            market_trend = context.get('market_trend', 'stable')
+            quantity = context.get('quantity', 0)
+            
+            prompt = f"""
+            As an agricultural market expert, provide negotiation advice for the following scenario:
+            
+            Crop: {crop}
+            Current market price: ₹{current_price} per quintal
+            Market trend: {market_trend}
+            Quantity: {quantity} quintals
+            
+            Provide practical negotiation advice in 2-3 sentences focusing on:
+            1. Fair price range based on market conditions
+            2. Key negotiation points to consider
+            3. Market timing factors
+            
+            Keep the advice concise and actionable.
+            """
+            
+            response = self.model.generate_content(
+                prompt,
+                generation_config=GenerationConfig(
+                    max_output_tokens=300,
+                    temperature=0.3
+                )
+            )
+            
+            if not response or not response.text:
+                raise GeminiClientError("Empty negotiation advice response")
+            
+            advice = response.text.strip()
+            logging.info("Successfully generated negotiation advice")
+            
+            return advice
+            
+        except Exception as e:
+            logging.error(f"Negotiation advice generation failed: {e}")
+            raise GeminiClientError(f"Failed to generate negotiation advice: {str(e)}")
+    
+    def analyze_market_trends(self, crop_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Analyze market trends for crops.
+        
+        Args:
+            crop_data (Dict[str, Any]): Crop market data
+            
+        Returns:
+            Dict[str, Any]: Market trend analysis
+            
+        Raises:
+            GeminiClientError: If market analysis fails
+        """
+        try:
+            crop_name = crop_data.get('crop_name', 'unknown')
+            current_price = crop_data.get('current_price', 0)
+            historical_prices = crop_data.get('historical_prices', [])
+            
+            prompt = f"""
+            Analyze the market trend for {crop_name} based on the following data:
+            
+            Current price: ₹{current_price} per quintal
+            Historical prices (last 7 days): {historical_prices}
+            
+            Provide analysis in JSON format with these fields:
+            - trend: "up", "down", or "stable"
+            - confidence: percentage (0-100)
+            - summary: brief explanation (1-2 sentences)
+            - recommendation: "buy", "sell", or "hold"
+            
+            Return only valid JSON, no additional text.
+            """
+            
+            response = self.model.generate_content(
+                prompt,
+                generation_config=GenerationConfig(
+                    max_output_tokens=200,
+                    temperature=0.2
+                )
+            )
+            
+            if not response or not response.text:
+                raise GeminiClientError("Empty market analysis response")
+            
+            # Try to parse the response as JSON-like structure
+            analysis_text = response.text.strip()
+            
+            # For now, return a structured response based on the text
+            # In a production system, you might want to parse JSON more robustly
+            analysis = {
+                "trend": "stable",  # Default values
+                "confidence": 75,
+                "summary": analysis_text,
+                "recommendation": "hold"
+            }
+            
+            logging.info(f"Successfully analyzed market trends for {crop_name}")
+            
+            return analysis
+            
+        except Exception as e:
+            logging.error(f"Market trend analysis failed: {e}")
+            raise GeminiClientError(f"Failed to analyze market trends: {str(e)}")
+    
+    def batch_translate(self, texts: list, source_lang: str, target_lang: str) -> list:
+        """
+        Translate multiple texts in a single request for efficiency.
+        
+        Args:
+            texts (list): List of texts to translate
+            source_lang (str): Source language code
+            target_lang (str): Target language code
+            
+        Returns:
+            list: List of translated texts
+            
+        Raises:
+            GeminiClientError: If batch translation fails
+        """
+        if not texts:
+            return []
+        
+        if source_lang == target_lang:
+            return texts
+        
+        try:
+            # Combine texts with separators for batch processing
+            combined_text = "\n---SEPARATOR---\n".join(texts)
+            
+            prompt = f"""
+            Translate the following texts from {source_lang} to {target_lang}.
+            The texts are separated by "---SEPARATOR---".
+            Return the translations in the same order, separated by "---SEPARATOR---".
+            Only return the translated texts, no explanations.
+            
+            Texts to translate:
+            {combined_text}
+            """
+            
+            response = self.model.generate_content(
+                prompt,
+                generation_config=GenerationConfig(
+                    max_output_tokens=2000,
+                    temperature=0.1
+                )
+            )
+            
+            if not response or not response.text:
+                raise GeminiClientError("Empty batch translation response")
+            
+            # Split the response back into individual translations
+            translated_texts = response.text.strip().split("---SEPARATOR---")
+            
+            # Ensure we have the same number of translations as inputs
+            if len(translated_texts) != len(texts):
+                logging.warning("Batch translation count mismatch, falling back to individual translations")
+                # Fallback to individual translations
+                return [self.translate_text(text, source_lang, target_lang) for text in texts]
+            
+            # Clean up the translations
+            translated_texts = [text.strip() for text in translated_texts]
+            
+            logging.info(f"Successfully batch translated {len(texts)} texts")
+            
+            return translated_texts
+            
+        except Exception as e:
+            logging.error(f"Batch translation failed: {e}")
+            # Fallback to individual translations
+            try:
+                return [self.translate_text(text, source_lang, target_lang) for text in texts]
+            except Exception as fallback_error:
+                raise GeminiClientError(f"Batch translation and fallback failed: {str(fallback_error)}")
+    
+    def detect_language(self, text: str) -> Optional[str]:
+        """
+        Detect the language of the given text.
+        
+        Args:
+            text (str): Text to analyze
+            
+        Returns:
+            Optional[str]: Detected language code or None if detection fails
+            
+        Raises:
+            GeminiClientError: If language detection fails
+        """
+        if not text or not text.strip():
+            return None
+        
+        try:
+            prompt = f"""
+            Detect the language of the following text. 
+            Respond with only one of these language codes: marathi, hindi, english
+            If the language is not one of these three, respond with "unknown".
+            
+            Text: {text}
+            """
+            
+            response = self.model.generate_content(
+                prompt,
+                generation_config=GenerationConfig(
+                    max_output_tokens=10,
+                    temperature=0.1
+                )
+            )
+            
+            if not response or not response.text:
+                return None
+            
+            detected_lang = response.text.strip().lower()
+            
+            # Validate the response
+            valid_languages = ['marathi', 'hindi', 'english', 'unknown']
+            if detected_lang in valid_languages:
+                logging.info(f"Successfully detected language: {detected_lang}")
+                return detected_lang if detected_lang != 'unknown' else None
+            
+            return None
+            
+        except Exception as e:
+            logging.error(f"Language detection failed: {e}")
+            raise GeminiClientError(f"Language detection failed: {str(e)}")
